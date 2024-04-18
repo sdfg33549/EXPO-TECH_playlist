@@ -1,0 +1,108 @@
+//color
+$white: #fff;
+$black: #4C4C4C;
+$pc: #797478;
+$bgc: #f4fbfb;
+$tc: #9aa9cd;
+//position
+@mixin size($w,$h:$w,$bdrs:0){
+  width: $w;
+  height: $h;
+  border-radius: $bdrs;
+}
+@mixin flex($j:center,$a:center){
+  display: flex;
+  justify-content: $j;
+  align-items: $a;
+}
+@mixin abpos($l:initial,$t:initial){
+  position: absolute;
+  left: $l;
+  top: $t;
+}
+
+//-----------------------------------------
+*{
+  font-family: 'Microsoft JhengHei';
+  // border: 1px solid;
+}
+body{
+  margin: 0;
+  padding: 0;
+  background-color: $bgc;
+}
+nav{
+  background-color: #fff;
+  padding: 15px;
+  h1{
+    color: $tc;
+    font-size: 16px;
+    margin: 0;
+  }
+}
+.container{
+  width: 65%;
+  margin: 30px auto;
+  overflow: hidden;
+}
+.row{
+  display: block;
+  unicode-bidi: isolate;
+}
+hr{
+  display: block;
+  -webkit-margin-before: 0.5em;
+  -webkit-margin-after: 0.5em;
+  -webkit-margin-start: auto;
+  -webkit-margin-end: auto;
+  border-style: inset;
+  border: solid #dddddd;
+  border-width: 1px 0 0;
+}
+.head{
+  width: 92%;
+  text-align: left;
+  margin: 2% 2% 2% 1%;
+  float: left;
+  h2{
+    font-size: 32px;
+    margin: 0 0 15px 2%;
+    color: $black;
+  }
+}
+a{
+  text-decoration: none;
+}
+.previewbox{
+  width: 22.00%;
+  margin: 2% 2% 2% 1%;
+  float: left;
+  text-align: center;
+  img{
+    max-width: 101%;
+  }
+  p{
+    text-align: center;
+    font-size: 16px;
+    font-weight: normal;
+    line-height: 1.5;
+    color: #797478;
+    margin: 0 0 0 0;
+    height: 20px;
+  }
+}
+
+
+
+
+
+//-----------------------------------------
+@media screen and (max-width: 1240px){
+  .container {
+    width: 80%;
+    margin: 30px auto;
+  }
+  .previewbox{
+    width: 20%;
+  }
+}
