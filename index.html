@@ -1,133 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
 <head>
-	<meta name="viewport" content="width=device-width; initial-scale=1.0; maximum-scale=1.0; user-scalable=0;">
-	
-    <!-- <link rel="stylesheet" href="https://meyerweb.com/eric/tools/css/reset/reset200802.css"> -->
-    <!--css reset-->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChordBook</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&family=JetBrains+Mono:wght@500&display=swap');
+        
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
 
-    <link rel="stylesheet" href="https://necolas.github.io/normalize.css/latest/normalize.css">
+        .mono { font-family: 'JetBrains Mono', monospace; }
 
-    <link rel="stylesheet" type="text/css" href="css/style.css">
-    
+        /* Step 2 標記區樣式 */
+        .chord-marker {
+            position: relative;
+            display: inline-flex;
+            align-items: flex-end;
+            min-width: 0.8rem;
+            height: 2.8rem; 
+            cursor: pointer;
+        }
+        
+        .chord-name {
+            position: absolute;
+            left: 0;
+            white-space: nowrap;
+            pointer-events: none;
+            line-height: 1;
+            font-weight: 800;
+        }
+
+        .bar-line {
+            width: 2px;
+            height: 1.5em;
+            background-color: #94a3b8;
+            margin: 0 0.75rem;
+            display: inline-block;
+        }
+
+        /* 演奏區格子優化 */
+        .beat-slot {
+            min-width: 2.2rem;
+            padding: 0 0.3rem;
+            height: 1.2em;
+            border-bottom: 1.5px solid #cbd5e1;
+            margin: 0 0.1rem;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .song-layout-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8em; 
+        }
+
+        .section-instrumental-preview {
+            width: 100%;
+            margin-bottom: 0.5em;
+        }
+
+        .lyrics-columns {
+            column-gap: 2.5em;
+        }
+
+        .break-inside-avoid {
+            break-inside: avoid;
+        }
+
+        .tag-label {
+            font-weight: 900;
+            color: #1e40af;
+            margin-bottom: 0.2em;
+            display: block;
+        }
+
+        .no-uppercase { text-transform: none !important; }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 20px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #e2e8f0;
+            transition: .4s;
+            border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px; width: 14px;
+            left: 3px; bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #2563eb; }
+        input:checked + .slider:before { transform: translateX(16px); }
+
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white !important; padding: 0 !important; }
+        }
+
+        input[type=range] {
+            height: 6px;
+            -webkit-appearance: none;
+            background: #e2e8f0;
+            border-radius: 3px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #2563eb;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .preview-scroll::-webkit-scrollbar { width: 8px; }
+        .preview-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        .toolbar-btn {
+            transition: transform 0.2s, background-color 0.2s;
+        }
+        .toolbar-btn:hover {
+            transform: scale(1.05);
+        }
+    </style>
 </head>
-<body>
-	<nav>
-		<h1>EXPO-TECH 數位展覽領航計畫</h1>
-	</nav>
-	
-	<div class="container">
+<body class="bg-slate-50 min-h-screen text-slate-800">
 
-		<div class="row">
-			<div class="head">
-				<h2>活動與營運支援</h2>
-				<hr>
-			</div>
-		</div>
+<div id="app" class="max-w-7xl mx-auto p-4 md:p-6">
+    <!-- 隱藏的檔案上傳輸入框 -->
+    <input type="file" ref="fileInput" @change="handleFileUpload" accept=".json" class="hidden">
 
-		<div class="row">
-			<a class="previewbox">
-				<img src="images\Slide 01.gif" alt="">
-				<p>觀展履歷系統</p>			
-			</a>
-			<a class="previewbox">
-				<img src="images\Slide 01.gif" alt="">
-				<p>買家軌跡融合分析</p>			
-			</a>
-		</div>
+    <!-- 頂部導覽 (保留藍色數字圓圈，移除黑色數字) -->
+    <div class="flex justify-center mb-8 no-print" v-if="!fullPreviewMode">
+        <div class="flex items-center gap-6 bg-white px-10 py-4 rounded-full shadow-sm border border-slate-200">
+            <button @click="step = 1" class="flex items-center gap-2 group">
+                <span :class="['w-6 h-6 flex items-center justify-center rounded-full text-xs font-black transition', step === 1 ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-slate-200']">1</span>
+                <span :class="['text-sm font-black transition tracking-wide', step === 1 ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600']">輸入歌詞</span>
+            </button>
+            
+            <div class="w-8 h-px bg-slate-200"></div>
+            
+            <button @click="step = 2" :disabled="!rawLyrics" class="flex items-center gap-2 group">
+                <span :class="['w-6 h-6 flex items-center justify-center rounded-full text-xs font-black transition', step === 2 ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-slate-200']">2</span>
+                <span :class="['text-sm font-black transition tracking-wide', step === 2 ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600']">標記和弦</span>
+            </button>
+            
+            <div class="w-8 h-px bg-slate-200"></div>
+            
+            <button @click="step = 3" :disabled="!rawLyrics" class="flex items-center gap-2 group">
+                <span :class="['w-6 h-6 flex items-center justify-center rounded-full text-xs font-black transition', step === 3 ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-slate-200']">3</span>
+                <span :class="['text-sm font-black transition tracking-wide', step === 3 ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600']">排版預覽</span>
+            </button>
+        </div>
+    </div>
 
-				<div class="row">
-			<div class="head">
-				<h2>報到與接待服務</h2>
-				<hr>
-			</div>
-		</div>
+    <!-- Step 1: 輸入內容 -->
+    <div v-if="step === 1" class="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow-sm border no-print">
+        <div class="space-y-5">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="text-lg font-black text-slate-800">歌曲編輯</h2>
+                <button @click="triggerImport" class="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-sm font-bold hover:bg-emerald-100 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                    匯入 JSON
+                </button>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <input v-model="songInfo.title" placeholder="歌曲名稱" class="p-4 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+                <input v-model="songInfo.artist" placeholder="歌手 / 樂團" class="p-4 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+            </div>
+            
+            <div class="flex flex-wrap gap-2 items-center">
+                <span class="text-[10px] font-black text-slate-400 mr-2 uppercase">段落標籤:</span>
+                <button v-for="tag in ['[Intro]', '[Interlude]', '[Outro]', '[Solo]', '[Chorus]', '[Verse]']" 
+                        @click="insertTag(tag)"
+                        class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-bold text-slate-600 transition">
+                    {{ tag }}
+                </button>
+            </div>
 
+            <textarea v-model="rawLyrics" ref="lyricTextarea" placeholder="請輸入歌詞... 若該行以 [] 開頭 (如 [Intro])，則會進入小節演奏模式。" class="w-full h-80 p-4 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed mono"></textarea>
+            
+            <button @click="proceedToStep2" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-blue-700 transition">開始標記和弦</button>
+        </div>
+    </div>
 
-		<div class="row">
-			<a class="previewbox">
-				<img src="images\checkin.gif" alt="">
-				<p>觀展報到輔助系統</p>			
-			</a>
-		</div>
+    <!-- Step 2: 標記和弦 -->
+    <div v-if="step === 2" class="space-y-4 no-print">
+        <div class="bg-white p-4 rounded-2xl shadow-sm border flex items-center justify-between sticky top-4 z-50">
+            <div class="flex items-center gap-6">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs font-black text-slate-400 uppercase">調式:</span>
+                    <select v-model="originalKey" class="bg-slate-100 border-none rounded-lg px-3 py-1.5 font-bold text-blue-600 outline-none">
+                        <option v-for="r in roots" :key="r" :value="r">{{ r }}</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button @click="step = 1" class="px-6 py-2 font-bold text-slate-400 hover:text-slate-600">返回歌詞</button>
+                <button @click="step = 3" class="bg-blue-600 text-white px-8 py-2 rounded-xl font-black shadow-lg hover:bg-blue-700 transition">排版預覽</button>
+            </div>
+        </div>
 
+        <div class="bg-white p-10 rounded-3xl shadow-inner border min-h-[600px]">
+            <div v-for="(line, lIdx) in processedLines" :key="lIdx" class="mb-8">
+                <div v-if="isTagLine(lIdx)" class="bg-blue-50/50 p-6 rounded-2xl border border-blue-100">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="tag-label mb-0 text-blue-800" style="font-size: 1.1em;">{{ line[0] }}</div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] font-black text-slate-400 uppercase">小節數:</span>
+                            <button @click="adjustBeats(lIdx, -4)" class="w-6 h-6 bg-white border rounded text-xs hover:bg-slate-50">-</button>
+                            <span class="text-xs font-bold w-12 text-center">{{ getBeatCount(lIdx) / 4 }} 小節</span>
+                            <button @click="adjustBeats(lIdx, 4)" class="w-6 h-6 bg-white border rounded text-xs hover:bg-slate-50">+</button>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center">
+                        <template v-for="n in getBeatCount(lIdx)">
+                            <div @click="openChordEditor(lIdx, n-1, true)" class="beat-slot chord-marker" style="height: 2.2rem;">
+                                <span class="chord-name text-blue-600 no-uppercase top-0" v-if="getChordAt(lIdx, n-1)" style="font-size: 1.05em; position: relative;">
+                                    {{ getChordAt(lIdx, n-1).name }}
+                                </span>
+                                <span v-if="(n-1) % 4 === 0 && !getChordAt(lIdx, n-1)" class="absolute -bottom-1 w-1 h-1 bg-blue-300 rounded-full"></span>
+                            </div>
+                            <span v-if="n % 4 === 0 && n < getBeatCount(lIdx)" class="bar-line"></span>
+                        </template>
+                    </div>
+                </div>
 
-		<div class="row">
-			<a class="previewbox" href='https://youtu.be/Nodq0CuAW6M' target="_blank">
-				<img src="images\robot.gif" alt="">
-				<p>展場行動化導覽</p>			
-			</a>
-		</div>
-				<div class="row">
-			<a class="previewbox" href='https://youtu.be/xjTKwqKF2YQ' target="_blank">
-				<img src="images\navigate.gif" alt="">
-				<p>展場精準定位與導航</p>			
-			</a>
-		</div>
+                <div v-else class="flex flex-wrap items-end px-4">
+                    <span v-for="(item, iIdx) in line" :key="iIdx" @click="openChordEditor(lIdx, iIdx)" class="chord-marker group">
+                        <span class="chord-name text-blue-600 no-uppercase" v-if="getChordAt(lIdx, iIdx)" :style="{ top: '0.2rem', fontSize: '0.95em' }">
+                            {{ getChordAt(lIdx, iIdx).name }}
+                        </span>
+                        <template v-if="item === '|'">
+                            <span class="bar-line group-hover:bg-blue-400"></span>
+                        </template>
+                        <template v-else>
+                            <span class="lyric-item px-0.5 group-hover:bg-blue-50 rounded transition">
+                                {{ item === ' ' ? '&nbsp;&nbsp;' : item }}
+                            </span>
+                        </template>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
 
-		<div class="row">
-			<div class="head">
-				<h2>展場內觀展服務</h2>
-				<hr>
-			</div>
-		</div>
+    <!-- Step 3: 排版控制 -->
+    <div v-if="step === 3" class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div class="lg:col-span-1 space-y-6 no-print">
+            <div class="bg-white p-6 rounded-[2rem] shadow-sm border space-y-6 sticky top-4">
+                <!-- 匯入匯出區塊 -->
+                <div>
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">檔案管理</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button @click="exportToJson" class="flex flex-col items-center justify-center gap-1 py-3 bg-slate-50 text-slate-600 rounded-xl font-bold border hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                            <span class="text-[10px]">匯出 JSON</span>
+                        </button>
+                        <button @click="triggerImport" class="flex flex-col items-center justify-center gap-1 py-3 bg-slate-50 text-slate-600 rounded-xl font-bold border hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                            <span class="text-[10px]">匯入 JSON</span>
+                        </button>
+                    </div>
+                </div>
 
+                <div>
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">版面</h3>
+                    <div class="space-y-3">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button @click="orientation = 'portrait'" :class="['py-2 rounded-lg text-xs font-bold border transition', orientation === 'portrait' ? 'bg-slate-800 text-white shadow-md' : 'bg-white']">直式</button>
+                            <button @click="orientation = 'landscape'" :class="['py-2 rounded-lg text-xs font-bold border transition', orientation === 'landscape' ? 'bg-slate-800 text-white shadow-md' : 'bg-white']">橫式</button>
+                        </div>
+                        <div class="pt-2">
+                            <span class="text-[10px] font-black text-slate-400 uppercase mb-2 block">欄位</span>
+                            <div class="grid grid-cols-4 gap-1">
+                                <button v-for="c in [1, 2, 3, 4]" @click="styles.columns = c" :class="['py-2 rounded-lg text-[10px] font-bold transition border', styles.columns === c ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-400']">{{ c }}</button>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl mt-2 border border-slate-100">
+                            <span class="text-xs font-bold text-slate-600">顯示歌曲標題</span>
+                            <label class="switch">
+                                <input type="checkbox" v-model="styles.showTitle">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
 
-		<div class="row">
-			<a class="previewbox" href='https://youtu.be/N9fm4yVYyZs' target="_blank">
-				<img src="images\vr.gif" alt="">
-				<p>Web-VR虛擬逛展</p>			
-			</a>
-		</div>
-		<div class="row">
-			<a class="previewbox">
-				<img src="images\720.gif" alt="">
-				<p>720全景互動展位</p>			
-			</a>
-		</div>
-		<div class="row">
-			<a class="previewbox" href='https://youtu.be/Wp0UUiTZbQM' target="_blank">
-				<img src="images\robot_online.gif" alt="">
-				<p>遠程觀展機器人</p>			
-			</a>
-		</div>
-		<div class="row">
-			<a class="previewbox" href='https://youtu.be/Nodq0CuAW6M' target="_blank">
-				<img src="images\hologram.gif" alt="">
-				<p>遠端參與者全像投影互動</p>			
-			</a>
-		</div>
+                <div>
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">文字與變調</h3>
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                            <span class="text-xs font-bold">變調</span>
+                            <div class="flex items-center gap-2">
+                                <button @click="transpose(-1)" class="w-8 h-8 bg-white border rounded shadow-sm hover:bg-slate-100 font-bold">-</button>
+                                <span class="text-xs font-black min-w-[2.5rem] text-center">{{ originalKey }}</span>
+                                <button @click="transpose(1)" class="w-8 h-8 bg-white border rounded shadow-sm hover:bg-slate-100 font-bold">+</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[10px] font-black mb-1">文字大小 <span class="text-blue-600">{{ styles.lyricSize }}px</span></div>
+                            <input type="range" v-model="styles.lyricSize" min="12" max="40" class="w-full accent-blue-600">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[10px] font-black mb-1">和弦文字大小 <span class="text-blue-600">{{ styles.chordSize }}px</span></div>
+                            <input type="range" v-model="styles.chordSize" min="8" max="30" class="w-full accent-blue-600">
+                        </div>
+                    </div>
+                </div>
 
-		<div class="row">
-			<a class="previewbox">
-				<img src="images\count.gif" alt="">
-				<p>出入口AI 3D人流偵測</p>			
-			</a>
-		</div>
+                <div>
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                            <span class="text-xs font-bold">和弦顏色</span>
+                            <input type="color" v-model="styles.chordColor" class="w-8 h-8 rounded border-none bg-transparent cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[10px] font-black mb-1">和弦高度 <span class="text-blue-600">{{ styles.chordHeight }}</span></div>
+                            <input type="range" v-model="styles.chordHeight" min="-1.0" max="2.5" step="0.1" class="w-full accent-blue-600">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[10px] font-black mb-1">行高 <span class="text-blue-600">{{ styles.lineHeight }}</span></div>
+                            <input type="range" v-model="styles.lineHeight" min="0.1" max="4" step="0.1" class="w-full accent-blue-600">
+                        </div>
+                    </div>
+                </div>
 
-		<div class="row">
-			<a class="previewbox" href='https://youtu.be/N9fm4yVYyZs' target="_blank">
-				<img src="images\nakedeye.gif" alt="">
-				<p>裸眼3D互動體驗</p>			
-			</a>
-		</div>
-		<div class="row">
-			<a class="previewbox" href='https://youtu.be/N9fm4yVYyZs' target="_blank">
-				<img src="images\xr.gif" alt="">
-				<p>XR沉浸式體驗</p>			
-			</a>
-		</div>
-		<div class="row">
-			<a class="previewbox">
-				<img src="images\3d_hologram.gif" alt="">
-				<p>3D物件全像投影互動</p>			
-			</a>
-		</div>		
-		<div class="row">
-			<a class="previewbox" href='https://youtu.be/N9fm4yVYyZs' target="_blank">
-				<img src="images\epaper.gif" alt="">
-				<p>節能數位海報(電子紙)</p>			
-			</a>
-		</div>
+                <div class="pt-4 border-t space-y-3">
+                    <button @click="triggerFullPreview" class="w-full bg-blue-600 text-white py-4 rounded-xl font-black shadow-lg hover:bg-blue-700 transition uppercase tracking-widest text-lg">預覽</button>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button @click="step = 1" class="py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition">返回歌詞</button>
+                        <button @click="step = 2" class="py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition">返回標記</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-	</div>
+        <!-- 編輯區同步預覽 -->
+        <div class="lg:col-span-3">
+            <div id="capture-area" :class="['bg-white shadow-2xl border mx-auto p-12 overflow-hidden', orientation === 'portrait' ? 'max-w-[210mm] min-h-[297mm]' : 'w-full min-h-[210mm]']" :style="{ fontSize: styles.lyricSize + 'px' }">
+                <div v-if="styles.showTitle" class="mb-[1.2em] text-center border-b pb-[0.6em]">
+                    <h2 style="font-size: 1.5em;" class="font-black mb-1 no-uppercase tracking-tight">{{ songInfo.title || '無標題歌曲' }}</h2>
+                    <p style="font-size: 0.7em;" class="text-slate-400 font-bold tracking-widest no-uppercase">
+                        {{ songInfo.artist || '未知歌手' }} | Key: {{ originalKey }}
+                    </p>
+                </div>
+                <div class="song-layout-container">
+                    <template v-for="(block, bIdx) in songBlocks" :key="bIdx">
+                        <div v-if="block.type === 'tag'" class="section-instrumental-preview">
+                            <div v-for="lIdx in block.lines" :key="lIdx" class="mb-[0.6em]">
+                                <span class="tag-label no-uppercase" style="font-size: 0.9em;">{{ processedLines[lIdx][0] }}</span>
+                                <div class="flex flex-wrap items-center font-bold no-uppercase" :style="{ fontSize: '1.1em', color: styles.chordColor }">
+                                    <span class="mr-3 opacity-40">|</span>
+                                    <template v-for="barIdx in Array(getBeatCount(lIdx)/4).keys()">
+                                        <div class="flex gap-[0.8em] items-center">
+                                            <template v-for="beatIdx in [0, 1, 2, 3]">
+                                                <span v-if="getChordAt(lIdx, (barIdx * 4) + beatIdx)">
+                                                    {{ getChordAt(lIdx, (barIdx * 4) + beatIdx).name }}
+                                                </span>
+                                            </template>
+                                        </div>
+                                        <span class="mx-3 opacity-40">|</span>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else class="lyrics-columns" :style="{ columnCount: styles.columns }">
+                            <div v-for="lIdx in block.lines" :key="lIdx" class="break-inside-avoid" :style="{ marginBottom: (styles.lineHeight - 0.7) + 'em' }">
+                                <div class="flex flex-wrap items-end" :style="{ paddingTop: (Math.max(0, styles.chordHeight) + 0.3) + 'em' }">
+                                    <span v-for="(item, iIdx) in processedLines[lIdx]" :key="iIdx" class="chord-marker" style="height: auto;">
+                                        <span class="chord-name no-uppercase" v-if="getChordAt(lIdx, iIdx)" 
+                                              :style="{ fontSize: styles.chordSize + 'px', top: '-' + styles.chordHeight + 'em', color: styles.chordColor }">
+                                            {{ getChordAt(lIdx, iIdx).name }}
+                                        </span>
+                                        <template v-if="item === '|'"><span class="bar-line" :style="{ height: '0.8em', margin: '0 0.4em' }"></span></template>
+                                        <template v-else><span class="lyric-item" :style="{ fontSize: '1em', lineHeight: '1.2' }">{{ item === ' ' ? '&nbsp;&nbsp;' : item }}</span></template>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
 
+    <!-- 全螢幕預覽與自動捲動 -->
+    <div v-if="fullPreviewMode" class="fixed inset-0 bg-slate-100 z-[9999] overflow-hidden no-print">
+        <div class="h-full flex flex-col">
+            <div class="bg-white p-4 shadow-xl border-b z-50 flex items-center justify-between">
+                <div class="flex items-center gap-6">
+                    <button @click="fullPreviewMode = false; stopPlayback()" class="text-slate-400 hover:text-slate-800 font-bold px-4 transition-colors">✕ 離開預覽</button>
+                    <div class="h-8 w-px bg-slate-200"></div>
+                    <button @click="togglePlayback" :class="['px-6 py-2 rounded-full font-black flex items-center gap-2 transition', isPlaying ? 'bg-orange-100 text-orange-600' : 'bg-blue-600 text-white shadow-lg']">
+                        <span>{{ isPlaying ? '⏸ 暫停' : '▶ 開始捲動' }}</span>
+                    </button>
+                    <div class="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-full">
+                        <span class="text-[10px] font-black text-slate-400 uppercase">速度</span>
+                        <input type="range" v-model="playbackSpeed" min="0.1" max="5" step="0.1" class="w-32 accent-blue-600">
+                        <span class="text-xs font-bold w-8 text-blue-600">{{ Number(playbackSpeed).toFixed(1) }}</span>
+                        <div class="w-px h-4 bg-slate-200 ml-2 mr-1"></div>
+                        <button @click="scrollToTop" class="toolbar-btn w-8 h-8 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-full" title="返回最上">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button @click="exportAsJPG" class="bg-slate-800 text-white px-6 py-2 rounded-full font-black text-sm hover:bg-slate-900 transition">📸 下載圖檔</button>
+                </div>
+            </div>
+            <div ref="previewContainer" class="flex-1 overflow-y-auto p-12 preview-scroll bg-slate-200 relative">
+                <div id="print-final" class="bg-white shadow-2xl mx-auto" :style="{ width: orientation === 'portrait' ? '210mm' : '100%', minHeight: '100%', fontSize: styles.lyricSize + 'px' }">
+                    <div class="p-16">
+                         <div v-if="styles.showTitle" class="mb-[1.2em] text-center border-b pb-[0.6em]">
+                            <h2 style="font-size: 1.5em;" class="font-black mb-1 no-uppercase">{{ songInfo.title || '無標題歌曲' }}</h2>
+                            <p style="font-size: 0.7em;" class="text-slate-400 font-bold no-uppercase">{{ songInfo.artist || '未知歌手' }} | Key: {{ originalKey }}</p>
+                        </div>
+                        <div class="song-layout-container">
+                            <template v-for="(block, bIdx) in songBlocks" :key="bIdx">
+                                <div v-if="block.type === 'tag'" class="section-instrumental-preview">
+                                    <div v-for="lIdx in block.lines" :key="lIdx" class="mb-[0.6em]">
+                                        <span class="tag-label no-uppercase" style="font-size: 0.9em;">{{ processedLines[lIdx][0] }}</span>
+                                        <div class="flex flex-wrap items-center font-bold no-uppercase" :style="{ fontSize: '1.1em', color: styles.chordColor }">
+                                            <span class="mr-3 opacity-40">|</span>
+                                            <template v-for="barIdx in Array(getBeatCount(lIdx)/4).keys()">
+                                                <div class="flex gap-[0.8em] items-center">
+                                                    <template v-for="beatIdx in [0, 1, 2, 3]">
+                                                        <span v-if="getChordAt(lIdx, (barIdx * 4) + beatIdx)">{{ getChordAt(lIdx, (barIdx * 4) + beatIdx).name }}</span>
+                                                    </template>
+                                                </div>
+                                                <span class="mx-3 opacity-40">|</span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-else class="lyrics-columns" :style="{ columnCount: styles.columns }">
+                                    <div v-for="lIdx in block.lines" :key="lIdx" class="break-inside-avoid" :style="{ marginBottom: (styles.lineHeight - 0.7) + 'em' }">
+                                        <div class="flex flex-wrap items-end" :style="{ paddingTop: (Math.max(0, styles.chordHeight) + 0.3) + 'em' }">
+                                            <span v-for="(item, iIdx) in processedLines[lIdx]" :key="iIdx" class="chord-marker" style="height: auto;">
+                                                <span class="chord-name no-uppercase" v-if="getChordAt(lIdx, iIdx)" :style="{ fontSize: styles.chordSize + 'px', top: '-' + styles.chordHeight + 'em', color: styles.chordColor }">{{ getChordAt(lIdx, iIdx).name }}</span>
+                                                <template v-if="item === '|'"><span class="bar-line" :style="{ height: '0.8em', margin: '0 0.4em' }"></span></template>
+                                                <template v-else><span class="lyric-item" style="font-size: 1em; line-height: 1.2;">{{ item === ' ' ? '&nbsp;&nbsp;' : item }}</span></template>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 和弦編輯器 -->
+    <div v-if="activeEditor" class="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] no-print p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg p-8 border">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-black">請選擇和弦</h3>
+                <button @click="activeEditor = false" class="text-slate-400 hover:text-slate-800 text-2xl">✕</button>
+            </div>
+            <div class="space-y-6">
+                <div v-if="usedChords.length > 0" class="space-y-2">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">快速標註</span>
+                    <div class="flex flex-wrap gap-2">
+                        <button v-for="uc in usedChords" @click="applyUsedChord(uc)" class="px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-black no-uppercase hover:bg-blue-100 transition">{{ uc }}</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-6 gap-2">
+                    <button v-for="r in roots" @click="tempChord.root = r" :class="['py-2 rounded-xl text-xs font-bold no-uppercase transition', tempChord.root === r ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 hover:bg-slate-200']">{{ r }}</button>
+                </div>
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="space-y-2">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">性質 (Suffix)</span>
+                        <div class="grid grid-cols-3 gap-1">
+                            <button v-for="s in suffixes" @click="tempChord.suffix = s" :class="['py-2 text-[10px] rounded-lg border font-bold no-uppercase transition', tempChord.suffix === s ? 'bg-slate-800 text-white shadow-md' : 'bg-white hover:border-slate-400']">{{ s || 'Maj' }}</button>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">延伸音 (Tension)</span>
+                        <div class="grid grid-cols-3 gap-1">
+                            <button v-for="t in tensions" @click="toggleTension(t)" :class="['py-2 text-[10px] rounded-lg border font-bold no-uppercase transition', tempChord.ext.includes(t) ? 'bg-orange-500 text-white shadow-md' : 'bg-white hover:border-slate-400']">{{ t }}</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-900 p-8 rounded-[2rem] text-center shadow-inner">
+                    <div class="text-5xl font-black italic text-white tracking-widest no-uppercase">{{ tempChord.root }}{{ tempChord.suffix }}{{ tempChord.ext.join('') }}</div>
+                </div>
+                <div class="flex gap-4 pt-4">
+                    <button @click="deleteChord" class="flex-1 py-4 bg-red-50 text-red-600 rounded-2xl font-bold hover:bg-red-100 transition">刪除</button>
+                    <button @click="saveChord" class="flex-[2] py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl hover:bg-blue-700 transition">確認插入</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script>
+    const { createApp, ref, computed, reactive, nextTick, onUnmounted } = Vue;
+    createApp({
+        setup() {
+            const step = ref(1);
+            const fullPreviewMode = ref(false);
+            const songInfo = reactive({ title: "", artist: "" });
+            const rawLyrics = ref("");
+            const processedLines = ref([]);
+            const chords = ref([]);
+            const originalKey = ref("C");
+            const orientation = ref("portrait");
+            const lyricTextarea = ref(null);
+            const fileInput = ref(null);
+            const lineBeatConfig = reactive({});
+            const isPlaying = ref(false);
+            const playbackSpeed = ref(1.0);
+            const previewContainer = ref(null);
+            
+            let requestID = null;
+            let lastTimestamp = 0;
+            let currentScrollPos = 0;
+
+            const styles = reactive({
+                chordSize: 15,
+                lyricSize: 18,
+                lineHeight: 1.5,
+                chordHeight: 0.8,
+                chordColor: "#2563eb",
+                showTitle: true,
+                columns: 2
+            });
+            
+            const roots = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+            const suffixes = ["", "m", "7", "m7", "maj7", "dim", "aug", "sus4", "sus2", "6", "add9"];
+            const tensions = ["b5", "#5", "b9", "9", "#9", "11", "#11", "13"];
+            
+            const activeEditor = ref(false);
+            const currentEditorPos = reactive({ line: 0, item: 0, isInst: false });
+            const tempChord = reactive({ root: "C", suffix: "", ext: [] });
+
+            const isTagLine = (idx) => {
+                const text = processedLines.value[idx]?.[0] || "";
+                return text.startsWith('[') && text.endsWith(']');
+            };
+
+            const getBeatCount = (lIdx) => lineBeatConfig[lIdx] || 16;
+            const adjustBeats = (lIdx, delta) => {
+                const next = (lineBeatConfig[lIdx] || 16) + delta;
+                if (next >= 4 && next <= 64) lineBeatConfig[lIdx] = next;
+            };
+
+            const songBlocks = computed(() => {
+                let blocks = [], currentLines = [], currentType = null;
+                processedLines.value.forEach((line, index) => {
+                    const type = isTagLine(index) ? 'tag' : 'lyrics';
+                    if (type !== currentType) {
+                        if (currentLines.length > 0) blocks.push({ type: currentType, lines: currentLines });
+                        currentLines = [index]; currentType = type;
+                    } else currentLines.push(index);
+                });
+                if (currentLines.length > 0) blocks.push({ type: currentType, lines: currentLines });
+                return blocks;
+            });
+
+            const usedChords = computed(() => [...new Set(chords.value.map(c => c.name))].slice(0, 15));
+
+            const insertTag = (tag) => {
+                const el = lyricTextarea.value;
+                const start = el.selectionStart;
+                rawLyrics.value = rawLyrics.value.substring(0, start) + "\n" + tag + "\n" + rawLyrics.value.substring(el.selectionEnd);
+                nextTick(() => el.focus());
+            };
+
+            const proceedToStep2 = () => {
+                if (!rawLyrics.value.trim()) return;
+                processedLines.value = rawLyrics.value.split('\n').filter(l => l.trim()).map((line, idx) => {
+                    const trimmed = line.trim();
+                    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+                        if (!lineBeatConfig[idx]) lineBeatConfig[idx] = 16;
+                        return [trimmed];
+                    }
+                    const regex = /\||[\p{L}\p{M}0-9']+|[^\x00-\xff]|\s/gu;
+                    return line.match(regex) || [" "];
+                });
+                step.value = 2;
+            };
+
+            // 匯出 JSON 功能
+            const exportToJson = () => {
+                const data = {
+                    songInfo: { ...songInfo },
+                    rawLyrics: rawLyrics.value,
+                    chords: [...chords.value],
+                    styles: { ...styles },
+                    lineBeatConfig: { ...lineBeatConfig },
+                    originalKey: originalKey.value,
+                    orientation: orientation.value,
+                    version: "1.0"
+                };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `${songInfo.title || 'mysong'}_chords.json`;
+                link.click();
+                URL.revokeObjectURL(url);
+            };
+
+            // 觸發匯入
+            const triggerImport = () => {
+                fileInput.value.click();
+            };
+
+            // 處理檔案上傳
+            const handleFileUpload = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        
+                        // 還原數據
+                        if (data.songInfo) Object.assign(songInfo, data.songInfo);
+                        if (data.rawLyrics) rawLyrics.value = data.rawLyrics;
+                        if (data.chords) chords.value = data.chords;
+                        if (data.styles) Object.assign(styles, data.styles);
+                        if (data.lineBeatConfig) Object.assign(lineBeatConfig, data.lineBeatConfig);
+                        if (data.originalKey) originalKey.value = data.originalKey;
+                        if (data.orientation) orientation.value = data.orientation;
+                        
+                        // 自動處理行分割
+                        proceedToStep2();
+                        
+                        // 重置 input 以便下次選擇同一個檔案
+                        event.target.value = '';
+                    } catch (err) {
+                        console.error("匯入失敗:", err);
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            const getChordAt = (l, i) => chords.value.find(ch => ch.line === l && ch.item === i);
+
+            const openChordEditor = (l, i, isInst = false) => { 
+                currentEditorPos.line = l; currentEditorPos.item = i; currentEditorPos.isInst = isInst;
+                const existing = getChordAt(l, i);
+                if (existing) {
+                    const rootMatch = existing.name.match(/^[A-G][#b]?/);
+                    if (rootMatch) { tempChord.root = rootMatch[0]; tempChord.suffix = existing.name.replace(tempChord.root, ""); tempChord.ext = []; }
+                } else { tempChord.root = "C"; tempChord.suffix = ""; tempChord.ext = []; }
+                activeEditor.value = true; 
+            };
+
+            const saveChord = () => {
+                const name = tempChord.root + tempChord.suffix + tempChord.ext.join('');
+                const idx = chords.value.findIndex(ch => ch.line === currentEditorPos.line && ch.item === currentEditorPos.item);
+                if (idx > -1) chords.value[idx].name = name; else chords.value.push({ ...currentEditorPos, name });
+                activeEditor.value = false;
+            };
+
+            const deleteChord = () => {
+                const idx = chords.value.findIndex(ch => ch.line === currentEditorPos.line && ch.item === currentEditorPos.item);
+                if (idx > -1) chords.value.splice(idx, 1);
+                activeEditor.value = false;
+            };
+
+            const transpose = (semitones) => {
+                const scale = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+                const transposeName = (name) => name.replace(/^([A-G][#b]?)/, (match, root) => {
+                    let idx = scale.indexOf(root);
+                    if (idx === -1) { if (root === "Db") idx = 1; if (root === "Gb") idx = 6; }
+                    return scale[(idx + semitones + 12) % 12];
+                });
+                chords.value = chords.value.map(ch => ({ ...ch, name: transposeName(ch.name) }));
+                originalKey.value = transposeName(originalKey.value);
+            };
+
+            const togglePlayback = () => { if (isPlaying.value) stopPlayback(); else startPlayback(); };
+            
+            const animateScroll = (timestamp) => {
+                if (!lastTimestamp) lastTimestamp = timestamp;
+                const deltaTime = timestamp - lastTimestamp;
+                lastTimestamp = timestamp;
+                if (previewContainer.value) {
+                    const el = previewContainer.value;
+                    const pixelsPerMs = (parseFloat(playbackSpeed.value) * 15) / 1000;
+                    currentScrollPos += pixelsPerMs * deltaTime;
+                    el.scrollTop = currentScrollPos;
+                    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 1) { stopPlayback(); return; }
+                }
+                requestID = requestAnimationFrame(animateScroll);
+            };
+
+            const startPlayback = () => {
+                isPlaying.value = true;
+                lastTimestamp = 0;
+                currentScrollPos = previewContainer.value ? previewContainer.value.scrollTop : 0;
+                requestID = requestAnimationFrame(animateScroll);
+            };
+
+            const stopPlayback = () => {
+                isPlaying.value = false;
+                if (requestID) { cancelAnimationFrame(requestID); requestID = null; }
+            };
+
+            const scrollToTop = () => {
+                if (previewContainer.value) {
+                    stopPlayback();
+                    previewContainer.value.scrollTo({ top: 0, behavior: 'smooth' });
+                    currentScrollPos = 0;
+                }
+            };
+
+            const exportAsJPG = () => {
+                const element = document.getElementById('print-final');
+                html2canvas(element, { scale: 2, useCORS: true }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = `${songInfo.title || 'mysong'}.jpg`;
+                    link.href = canvas.toDataURL('image/jpeg', 0.9);
+                    link.click();
+                });
+            };
+
+            onUnmounted(() => stopPlayback());
+
+            return {
+                step, songInfo, rawLyrics, processedLines, chords, originalKey, styles, orientation,
+                roots, suffixes, tensions, activeEditor, tempChord, fullPreviewMode, lyricTextarea,
+                songBlocks, usedChords, isPlaying, playbackSpeed, previewContainer, fileInput,
+                proceedToStep2, openChordEditor, saveChord, deleteChord, getChordAt, 
+                isTagLine, triggerFullPreview: () => fullPreviewMode.value = true, transpose, exportAsJPG, insertTag,
+                scrollToTop, exportToJson, triggerImport, handleFileUpload,
+                applyUsedChord: (name) => {
+                    const idx = chords.value.findIndex(ch => ch.line === currentEditorPos.line && ch.item === currentEditorPos.item);
+                    if (idx > -1) chords.value[idx].name = name; else chords.value.push({ ...currentEditorPos, name });
+                    activeEditor.value = false;
+                }, 
+                toggleTension: (t) => {
+                    const idx = tempChord.ext.indexOf(t);
+                    if (idx > -1) tempChord.ext.splice(idx, 1); else tempChord.ext.push(t);
+                },
+                getBeatCount, adjustBeats, togglePlayback, stopPlayback
+            };
+        }
+    }).mount('#app');
+</script>
 </body>
+</html>
